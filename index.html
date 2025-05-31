@@ -1,0 +1,146 @@
+<!-- PWA and Backend-ready Bedtime Story App -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Bedtime Story Teller</title>
+  <link rel="manifest" href="manifest.json">
+  <script>
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.register('sw.js').then(() => {
+        console.log('Service Worker registered');
+      });
+    }
+  </script>
+  <style>
+    body {
+      font-family: 'Georgia', serif;
+      background: linear-gradient(to bottom, #0f2027, #203a43, #2c5364);
+      color: #eaeaea;
+      text-align: center;
+      padding: 2rem;
+    }
+    input, button, select {
+      padding: 0.8rem;
+      font-size: 1rem;
+      margin: 0.5rem;
+      border-radius: 10px;
+      border: none;
+    }
+    input {
+      width: 60%;
+    }
+    button {
+      background: #3a0ca3;
+      color: white;
+      cursor: pointer;
+    }
+    #story {
+      margin-top: 2rem;
+      font-size: 1.2rem;
+      line-height: 1.6;
+      max-width: 800px;
+      margin-left: auto;
+      margin-right: auto;
+      background: rgba(34, 34, 68, 0.9);
+      padding: 1.5rem;
+      border-radius: 12px;
+    }
+  </style>
+</head>
+<body>
+  <h1>🌙 Bedtime Story Teller</h1>
+  <input type="text" id="topic" placeholder="Enter a bedtime story topic..." />
+  <select id="voiceSelector"></select>
+  <button onclick="tellStory()">Tell Me a Story</button>
+  <button onclick="downloadAudio()">🎧 Download Story (Audio)</button>
+  <div id="story"></div>
+
+  <audio id="backgroundAudio" loop autoplay hidden></audio>
+
+  <script>
+    let voices = [];
+    let lastStory = "";
+
+    speechSynthesis.onvoiceschanged = () => {
+      voices = speechSynthesis.getVoices();
+      const selector = document.getElementById("voiceSelector");
+      selector.innerHTML = '';
+      voices.forEach((v, i) => {
+        const opt = document.createElement("option");
+        opt.value = i;
+        opt.textContent = `${v.name} (${v.lang})`;
+        selector.appendChild(opt);
+      });
+    };
+
+    async function tellStory() {
+      const topicInput = document.getElementById("topic");
+      const topic = topicInput.value.trim();
+      const storyDiv = document.getElementById("story");
+      if (!topic) {
+        storyDiv.innerText = "Please enter a topic for your story.";
+        return;
+      }
+      storyDiv.innerText = "Loading...";
+      try {
+        const response = await fetch("https://storpy-backend.up.railway.app/get-story", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify({ topic })
+        });
+        if (!response.ok) {
+          const errorText = await response.text();
+          throw new Error(`Server responded with ${response.status}: ${errorText}`);
+        }
+        const data = await response.json();
+        if (!data.story) {
+          storyDiv.innerText = "No story received. Please try again.";
+          return;
+        }
+        const story = data.story;
+        lastStory = story;
+        storyDiv.innerText = story;
+
+        const utterance = new SpeechSynthesisUtterance(story);
+        const selectedVoice = document.getElementById("voiceSelector").value;
+        utterance.voice = voices[selectedVoice] || voices.find(v => v.lang.includes('en')) || null;
+        utterance.rate = 0.85;
+        utterance.pitch = 1;
+        if (utterance.voice) {
+          speechSynthesis.speak(utterance);
+        }
+      } catch (e) {
+        storyDiv.innerText = `Failed to load story: ${e.message}`;
+        console.error(e);
+      }
+    }
+
+    async function downloadAudio() {
+      if (!lastStory) return alert("No story available for download.");
+      try {
+        const response = await fetch('https://storpy-backend.up.railway.app/generate-audio', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ text: lastStory })
+        });
+        if (!response.ok) {
+          const errorText = await response.text();
+          throw new Error(`Server responded with ${response.status}: ${errorText}`);
+        }
+        const data = await response.json();
+        const link = document.createElement('a');
+        link.href = data.url;
+        link.download = 'bedtime_story.mp3';
+        link.click();
+      } catch (err) {
+        alert("Failed to generate audio. Make sure the backend is deployed and accessible.");
+        console.error(err);
+      }
+    }
+  </script>
+</body>
+</html>
